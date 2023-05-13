@@ -28,6 +28,11 @@
  #define GPIO_Rx GPIO('A', 25)
  #define GPIO_Tx GPIO('A', 24)
  #define CANx_GCLK_ID CAN0_GCLK_ID
+#elif CONFIG_ATSAMD_CANBUS_PB11_PB10
+ DECL_CONSTANT_STR("RESERVE_PINS_CAN", "PB11,PB10");
+ #define GPIO_Rx GPIO('B', 11)
+ #define GPIO_Tx GPIO('B', 10)
+ #define CANx_GCLK_ID CAN1_GCLK_ID
 #elif CONFIG_ATSAMD_CANBUS_PB13_PB12
  DECL_CONSTANT_STR("RESERVE_PINS_CAN", "PB13,PB12");
  #define GPIO_Rx GPIO('B', 13)
@@ -40,7 +45,17 @@
  #define CANx_GCLK_ID CAN1_GCLK_ID
 #endif
 
-#if CANx_GCLK_ID == CAN0_GCLK_ID
+#if CANx_GCLK_ID == CAN0_GCLK_ID && CONFIG_MACH_SAMC21
+ #define CAN_FUNCTION 'G'
+ #define CANx CAN0
+ #define CANx_IRQn CAN0_IRQn
+ #define MCLK_AHBMASK_CANx MCLK_AHBMASK_CAN0
+#elif CANx_GCLK_ID == CAN1_GCLK_ID && CONFIG_MACH_SAMC21
+ #define CAN_FUNCTION 'G'
+ #define CANx CAN1
+ #define CANx_IRQn CAN1_IRQn
+ #define MCLK_AHBMASK_CANx MCLK_AHBMASK_CAN1
+#elif CANx_GCLK_ID == CAN0_GCLK_ID
  #define CAN_FUNCTION 'I'
  #define CANx CAN0
  #define CANx_IRQn CAN0_IRQn
@@ -85,7 +100,7 @@ static struct fdcan_msg_ram MSG_RAM;
 
 // Transmit a packet
 int
-canbus_send(struct canbus_msg *msg)
+canhw_send(struct canbus_msg *msg)
 {
     uint32_t txfqs = CANx->TXFQS.reg;
     if (txfqs & CAN_TXFQS_TFQF)
@@ -120,7 +135,7 @@ can_filter(uint32_t index, uint32_t id)
 
 // Setup the receive packet filter
 void
-canbus_set_filter(uint32_t id)
+canhw_set_filter(uint32_t id)
 {
     if (!CONFIG_CANBUS_FILTER)
         return;
@@ -234,13 +249,18 @@ compute_btr(uint32_t pclock, uint32_t bitrate)
 void
 can_init(void)
 {
+#if CONFIG_HAVE_SAMD_USB
     if (!CONFIG_USB) {
         // The FDCAN peripheral only seems to run if at least one
         // other peripheral is also enabled.
         enable_pclock(USB_GCLK_ID, ID_USB);
         USB->DEVICE.CTRLA.reg = USB_CTRLA_ENABLE;
     }
+#endif
 
+#if CONFIG_MACH_SAMC21
+    MCLK->AHBMASK.reg |= MCLK_AHBMASK_CANx;
+#endif
     enable_pclock(CANx_GCLK_ID, -1);
 
     gpio_peripheral(GPIO_Rx, CAN_FUNCTION, 1);
@@ -283,7 +303,7 @@ can_init(void)
     CANx->CCCR.reg &= ~CAN_CCCR_INIT;
 
     /*##-2- Configure the CAN Filter #######################################*/
-    canbus_set_filter(0);
+    canhw_set_filter(0);
 
     /*##-3- Configure Interrupts #################################*/
     armcm_enable_irq(CAN_IRQHandler, CANx_IRQn, 1);

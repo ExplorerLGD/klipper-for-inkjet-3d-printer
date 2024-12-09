@@ -14,7 +14,7 @@ class Inkjet:
         self.INK_UV_LIGHT_CTL_ID = 0x44E
         #self.ink_tp_filters = [{"can_id": self.INK_SUPPLY_CTL_ID, "can_mask": 0x7ff,"extended": False}]
         #self.inkjet_bus = can.interface.Bus(channel="can0", bitrate=500000, can_filters=self.ink_tp_filters, bustype='socketcan')
-        self.inkjet_bus = can.interface.Bus(channel="can0", bitrate=500000,  bustype='socketcan')
+        #self.inkjet_bus = can.interface.Bus(channel="can0", bitrate=1000000,  bustype='socketcan')
         #-----控制参数-----------
         self.ink_heat_PWM=0
         self.ink_pump_pwm=0

@@ -1,18 +1,9 @@
-Welcome to the Klipper project!
+This project is based on Klipper and focuses on PolyJet 3D printing technology. The goal is to achieve full-color inkjet 3D printing while making these printers more affordable and accessible for DIY enthusiasts.
 
-[![Klipper](docs/img/klipper-logo-small.png)](https://www.klipper3d.org/)
+Developing this technology involves significant trial and error, leading to high research costs. If you find this project valuable and would like to support its development, please consider contributing on [Patreon](patreon.com/Weirdtechresearch).
 
-https://www.klipper3d.org/
+🔗 Demonstration on [YouTube](https://youtube.com/playlist?list=PLzRUH5eaCgeyL0hYZDy92X7-94pXXh6bU&si=Glukqrc5bByWwDgU)
 
-Klipper is a 3d-Printer firmware. It combines the power of a general
-purpose computer with one or more micro-controllers. See the
-[features document](https://www.klipper3d.org/Features.html) for more
-information on why you should use Klipper.
+🔗 Support My Research on [Patreon](patreon.com/Weirdtechresearch)
 
-To begin using Klipper start by
-[installing](https://www.klipper3d.org/Installation.html) it.
 
-Klipper is Free Software. See the [license](COPYING) or read the
-[documentation](https://www.klipper3d.org/Overview.html). We depend on
-the generous support from our
-[sponsors](https://www.klipper3d.org/Sponsors.html).

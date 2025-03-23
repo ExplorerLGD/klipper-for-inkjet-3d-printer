@@ -1,18 +1,11 @@
-Welcome to the Klipper project!
+🌈 DIY Full-Color PolyJet 3D Printing with Klipper!
 
-[![Klipper](docs/img/klipper-logo-small.png)](https://www.klipper3d.org/)
+This project is built on Klipper and focuses on PolyJet 3D printing technology, aiming to make full-color inkjet 3D printing affordable and accessible for DIY enthusiasts.
 
-https://www.klipper3d.org/
+🔧 [Youtube](www.youtube.com/@weirdtechresearch)
 
-Klipper is a 3d-Printer firmware. It combines the power of a general
-purpose computer with one or more micro-controllers. See the
-[features document](https://www.klipper3d.org/Features.html) for more
-information on why you should use Klipper.
+💡 High R&D Costs – Your support helps accelerate development! If you find this project valuable, consider supporting it on Patreon.
+❤️ [Patreon](patreon.com/Weirdtechresearch) 
 
-To begin using Klipper start by
-[installing](https://www.klipper3d.org/Installation.html) it.
-
-Klipper is Free Software. See the [license](COPYING) or read the
-[documentation](https://www.klipper3d.org/Overview.html). We depend on
-the generous support from our
-[sponsors](https://www.klipper3d.org/Sponsors.html).
+👾 Join the Discussion & Collaborate!
+🚀 [Discord](discord.gg/bAUc495WVe) 

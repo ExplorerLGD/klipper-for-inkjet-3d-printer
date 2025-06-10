@@ -1,9 +1,9 @@
 #!/bin/bash
 # This script installs Klipper on an Ubuntu 22.04 ("Jammy") machine
 
-PYTHONDIR="${HOME}/klippy-env"
+PYTHONDIR="/usr/local/share/pynq-venv"
 SYSTEMDDIR="/etc/systemd/system"
-KLIPPER_USER=$USER
+KLIPPER_USER=root
 KLIPPER_GROUP=$KLIPPER_USER
 
 # Step 1: Install system packages
@@ -36,7 +36,7 @@ create_virtualenv()
     report_status "Updating python virtual environment..."
 
     # Create virtualenv if it doesn't already exist
-    [ ! -d ${PYTHONDIR} ] && virtualenv -p python3 ${PYTHONDIR}
+    #[ ! -d ${PYTHONDIR} ] && virtualenv -p python3 ${PYTHONDIR}
 
     # Install/update dependencies
     ${PYTHONDIR}/bin/pip install -r ${SRCDIR}/scripts/klippy-requirements.txt
@@ -61,7 +61,8 @@ WantedBy=multi-user.target
 Type=simple
 User=$KLIPPER_USER
 RemainAfterExit=yes
-ExecStart=${PYTHONDIR}/bin/python ${SRCDIR}/klippy/klippy.py ${HOME}/printer.cfg -l ${KLIPPER_LOG}
+#ExecStart=${PYTHONDIR}/bin/python ${SRCDIR}/klippy/klippy.py ${HOME}/printer.cfg -l ${KLIPPER_LOG}
+ExecStart=/bin/bash -c 'source /etc/profile.d/pynq_venv.sh && source /etc/profile.d/xrt_setup.sh && exec ${PYTHONDIR}/bin/python ${SRCDIR}/klippy/klippy.py ${HOME}/printer.cfg -l ${KLIPPER_LOG}'
 EOF
 # Use systemctl to enable the klipper systemd service script
     sudo systemctl enable klipper.service

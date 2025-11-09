@@ -1,165 +1,47 @@
-#创建发送数据，高四位为1时发送控制数据，为0时发送打印数据       
-    #控制信号DATA,从高到低 待定 待定 喷墨使能 主使能
 #gpiod 需要创建用户组，创建规则文件及命令，并将当前用户添加
 #FPGA USB也需要添加用户组sudo usermod -aG dialout $USER
 
 import logging,os
 import time
-import socket
 import queue
-import threading
-import serial
 import multiprocessing
 import zipfile
 import tempfile
 import shutil
-# import gpiod
-# from gpiod.line import Edge
 
-#import binascii
-class Channel:
-    def __init__(self,printer,port):
-        self.channel_idx=0
-        self.printer=printer       
-        self.reactor=self.printer.get_reactor()
-        self.gcode=self.printer.lookup_object('gcode')
-        self.virtual_sdcard=self.printer.lookup_object("virtual_sdcard")
-        #---------------数据通信--------------------
-        self.port=port
-        self.process_exit=multiprocessing.Value('i', 0)
-        self.file_queue=multiprocessing.Queue()
-        self.cmd_queue=multiprocessing.Queue()
-        #----------控制状态--------------------
-        self.head_en=False
-        self.jet_en=False
-        self.print_done=False  
-        #----------多线程----------------------
-        self.process = multiprocessing.Process(target=self._serial_process, args=(self.cmd_queue,self.file_queue,self.process_exit,))
-        self.process.daemon=True
-        self.process.start()
-    def _clear_queue(self,queue):
-        while not queue.empty():
-            queue.get()
-    def LOAD_CONFIG(self,file_path):       
-        #发送一个重置信号
-        self.cmd_queue.put(b'\x11')
-        self.cmd_queue.put(b'\x10')
-        time.sleep(0.5)
-        self.cmd_queue.put(b'\x11')
-        time.sleep(1)
-        self.file_queue.put(file_path)
 
-    def LOAD_PRINT_DATA(self,file_path):
-        self.file_queue.put(file_path)
-
-    #喷墨使能 启用
-    def JET_ENABLE(self):
-        #self.reactor.pause(self.reactor.monotonic()+1.0)
-        self.cmd_queue.put(b'\x13')  
-        self.jet_en=True 
-        self.gcode.respond_info("Channel %s Jet Enable"%(self.channel_idx))
-    #喷墨使能 禁用
-    def JET_DISABLE(self):
-        self.cmd_queue.put(b'\x11')  
-        self.jet_en=False    
-        self.gcode.respond_info("Channel %s Jet Disable"%(self.channel_idx)) 
-    #喷头驱动主使能 禁用
-    def HEAD_DISABLE(self):
-        self.cmd_queue.put(b'\x10')
-        self.print_done=True
-        self.head_en=False  
-        self.jet_en=False 
-        time.sleep(1)
-        with self.process_exit.get_lock():
-            self.process_exit.value=1
-        self.gcode.respond_info("Head Disable")
-
-    def _serial_process(self,cmd_queue,file_queue,process_exit):
-        fifo_valid=True
-        data_queue=queue.Queue()
-        try:
-            ser=serial.Serial(port=self.port)
-        except serial.SerialException as e:
-            self.gcode.respond_info(f"Failed to open serial port: {e}")
-            return
-
-        while True: 
-            if process_exit.value==1:
-                ser.flushInput()  # 清除接收缓冲区
-                ser.flushOutput()  # 清除发送缓冲区
-                ser.close()
-                self.gcode.respond_info("serial close.")
-                time.sleep(1)
-                break   
-            if not cmd_queue.empty():
-                cmd = cmd_queue.get()
-                try:
-                    ser.write(bytes(cmd))
-                    self.gcode.respond_info("Send cmd:%s"%(cmd))
-                except serial.SerialException as e:
-                    self.gcode.respond_info(f"Failed to send cmd: {e}")
-            if not file_queue.empty():
-                data_file_path=file_queue.get()
-                try:
-                    with open(data_file_path,"r",encoding="utf-8-sig") as file:
-                        sendtime=0
-                        while True:                     
-                            if process_exit.value==1:
-                                break 
-                            if not cmd_queue.empty():
-                                cmd = cmd_queue.get()
-                                try:
-                                    ser.write(bytes(cmd))
-                                    self.gcode.respond_info("Send cmd:%s"%(cmd))
-                                except serial.SerialException as e:
-                                    self.gcode.respond_info(f"Failed to send cmd: {e}")
-                            #读取串口返回数据   
-                            if ser.in_waiting>0:
-                                try:
-                                    rev = ser.read(ser.in_waiting)
-                                    if rev[-1] == 17:  
-                                        fifo_valid = True                              
-                                    elif rev[-1] == 16:  
-                                        fifo_valid = False
-                                    else:
-                                        self.gcode.respond_info("FIFO rev wrong state.")
-                                except serial.SerialException as e:
-                                    self.gcode.respond_info(f"Failed to read from serial: {e}")
-
-                            #如果fifo没满则发送多个数据           
-                            if fifo_valid:
-                                chunk = file.read(64)
-                                sendtime+=1
-                                if not chunk:                         
-                                    break  # 文件已读完
-                                try:
-                                    hex_data=[int(s,16) for s in chunk]
-                                    bytes_data=bytes(hex_data)
-                                    ser.write(bytes_data)
-                                except ValueError as e:
-                                    self.gcode.respond_info(f"Failed to convert data to hex: {e}")
-                                except serial.SerialException as e:
-                                    self.gcode.respond_info(f"Failed to send data: {e}")
-                
-                        self.gcode.respond_info("Load file finish:%s"%(os.path.basename(data_file_path)))
-                        self.gcode.respond_info("this file send times:%i"%(sendtime))
-                except FileNotFoundError as e:
-                    self.gcode.respond_info(f"File not found: {e}")
-                except IOError as e:
-                    self.gcode.respond_info(f"Failed to read file: {e}")
-                except Exception as e:
-                    self.gcode.respond_info(f"Unexpected error: {e}")
+from pynq import Overlay
+from pynq import GPIO
+import pynq.lib.dma
+from pynq import allocate
+from pynq import MMIO
+from pynq import PL
+from pynq import DefaultHierarchy
+from pynq.lib.video import *
+import numpy as np
 
 class Xaar1003:
     def __init__(self,config):
+        
         self.printer=config.get_printer()        
         self.reactor=self.printer.get_reactor()
         self.gcode=self.printer.lookup_object('gcode')
         self.virtual_sdcard=self.printer.lookup_object("virtual_sdcard")
-        #----------channel--------------------
-        self.channels=[]
+        #----------overlay--------------------
+        PL.reset()
+        self.ol = Overlay("/home/xilinx/zynq.bit")
+        #self.ol.download("/home/xilinx/pl.dtbo")
+        self.ch1 = self.ol.axi_dma_1
+        self.ch1_buff=allocate(shape=(10*1024*1024,), dtype=np.uint8)#预分配10M缓冲区
+        self.channels = [self.ch1]
+        self.head_en = GPIO(GPIO.get_gpio_pin(0), 'out')
+        self.head_dir = GPIO(GPIO.get_gpio_pin(1), 'out')
+        self.head_jet = GPIO(GPIO.get_gpio_pin(2), 'out')
+        self.jet_delay_time = MMIO(0x40000000, 0x1000) #Delay模块基址为0x40000000，大小为4K字节
+        self.active_channels = 0
         #---------gcode------------------- 
         self.gcode.register_command('PRINT_INIT',self.cmd_PRINT_INIT)
+        self.gcode.register_command('SET_JET_DELAY',self.cmd_SET_JET_DELAY)
         self.gcode.register_command('LOAD_CONFIG',self.cmd_LOAD_CONFIG)
         self.gcode.register_command('WAIT',self.cmd_WAIT)
         self.gcode.register_command('LOAD_PRINT_DATA',self.cmd_LOAD_PRINT_DATA)
@@ -174,125 +56,198 @@ class Xaar1003:
         self.gcode.register_command('TEST2',self.cmd_TEST2)
         self.gcode.register_command('TEST3',self.cmd_TEST3)
 
-    def _extract_compressed_file(self, compressed_file_path):
-        extracted_files = {}  
-        try:
-            # 检查文件类型并处理
-            if compressed_file_path.endswith('.zip'):
-                subfolder_name = os.path.splitext(os.path.basename(compressed_file_path))[0]
-                subfolder_path = os.path.join(os.path.dirname(compressed_file_path), subfolder_name)
-                
-                # 检查子目录是否存在
-                if os.path.exists(subfolder_path):
-                    self.gcode.respond_info(f"Subdirectory already exists: {subfolder_path}")
-                    return extracted_files, subfolder_path
-                
-                with zipfile.ZipFile(compressed_file_path, 'r') as zip_ref:
-                    os.makedirs(subfolder_path, exist_ok=True)
-                    
-                    # 提取所有文件到子文件夹
-                    for file_name in zip_ref.namelist():
-                        if not file_name.endswith('/'):  # 不是目录
-                            extracted_path = os.path.join(subfolder_path, file_name)
-                            os.makedirs(os.path.dirname(extracted_path), exist_ok=True)
-                            with zip_ref.open(file_name) as source, open(extracted_path, 'wb') as target:
-                                shutil.copyfileobj(source, target)
-                            extracted_files[file_name] = extracted_path
-            else:
-                gcmd.error(f"不支持的压缩文件格式: {compressed_file_path}")
-                
-        except Exception as e:
-            gcmd.error(f"解压文件出错: {str(e)}")
-            shutil.rmtree(subfolder_path)
-            return {}
-            
-        return extracted_files, subfolder_path
+    def _extract_compressed_file(self, file_path):
+        zip_path = "/content/print.zip"
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            with zf.open("print/CH1/1.txt") as f:   # 注意前面的 print/
+                content = f.read().decode("utf-8")  # 如果有乱码换成 gbk
+                return content
 
     def cmd_PRINT_INIT(self,gcmd):
         # 获取参数，如果没有提供，则使用默认值1
-        channel_num = gcmd.get_int('CHANNEL_NUM', 1)
-        # 先清理现有通道资源（如果有）
-        for channel in self.channels:
-            if hasattr(channel, 'HEAD_DISABLE'):
-                channel.HEAD_DISABLE()
-        directory = os.path.dirname(self.virtual_sdcard.current_file.name)
-        self.channels = []
-        # 根据channel_num创建多个Channel实例
-        for i in range(channel_num):
-            # 构建串口设备路径
-            port = f'/dev/print_ch{i+1}'           
-            # 创建Channel实例
-            channel = Channel(self.printer,port) 
-            channel.channel_idx = i+1          
-            # 将实例添加到通道列表
-            self.channels.append(channel)
-            file_name=f'CH{i+1}.zip'
-            channel_file_path = os.path.join(directory, file_name)
-            self._extract_compressed_file(channel_file_path)
+        self.active_channels = gcmd.get_int('CHANNEL_NUM', 1)
+        self.ch1.sendchannel.start()
+        self.ch1.recvchannel.start()
+        self.head_en.write(1)
+        time.sleep(0.5)
+        self.head_en.write(0)
+        time.sleep(0.5)
+        self.head_en.write(1)
         self.gcode.respond_info("Init finish.")
-
+    def cmd_SET_JET_DELAY(self,gcmd):
+        delay_seconds = gcmd.get_float('TIME', 1.0)  # 默认1秒
+        clock_freq = 20000000  # 20MHz
+        delay_value = int(delay_seconds * clock_freq)
+        self.jet_delay_time.write(0x0, delay_value)
+        self.gcode.respond_info(f"Set jet delay time:{delay_seconds}.")
     def cmd_LOAD_CONFIG(self,gcmd):
-        file_name = gcmd.get('FILE')
-        channel_idx = gcmd.get_int('CHANNEL_IDX')
-        directory = os.path.dirname(self.virtual_sdcard.current_file.name)
-        config_file_path = os.path.join(directory, file_name)
-        self.channels[channel_idx-1].LOAD_CONFIG(config_file_path)
-        self.gcode.respond_info("Loading config:%s"%(file_name)) 
+        # file_name = gcmd.get('FILE')
+        # directory = os.path.dirname(self.virtual_sdcard.current_file.name)
+        # config_file_path = os.path.join(directory, file_name)
+        with open("/home/xilinx/printer_data/gcodes/Config.txt", "r") as f:
+            hex_str_config = f.read()
+            config_bytes = [
+                (int(hex_str_config[i+1], 16) << 4) | int(hex_str_config[i], 16)
+                for i in range(0, len(hex_str_config), 2)
+            ]
+            config_array = np.array(config_bytes, dtype=np.uint8)
+            dma_buffer = allocate(shape=config_array.shape, dtype=np.uint8)
+            np.copyto(dma_buffer, config_array)
+            for i in range(self.active_channels):
+                self.channels[i].sendchannel.transfer(dma_buffer)
+                self.channels[i].sendchannel.wait()
+            del dma_buffer
+        #self.gcode.respond_info("Loading config:%s" % (file_name)) 
+        self.gcode.respond_info("Config finish.")
 
     def cmd_LOAD_PRINT_DATA(self,gcmd):
-        file_name = gcmd.get('FILE')
-        channel_idx = gcmd.get_int('CHANNEL_IDX')
-        directory = os.path.dirname(self.virtual_sdcard.current_file.name)
-        subfolder_name=f'CH{channel_idx}'
-        file_path = os.path.join(directory,subfolder_name, file_name)
-        self.channels[channel_idx-1].LOAD_PRINT_DATA(file_path)
-        self.gcode.respond_info("Loading print data:%s"%(file_name)) 
-
-    def _jet_task(self,channel):
-        channel.JET_ENABLE()
+        if(self.ch1.sendchannel.idle):
+            with open("/home/xilinx/printer_data/gcodes/1.txt", "r") as f:
+                hex_str_config = f.read()
+                data_bytes = [
+                    (int(hex_str_config[i+1], 16) << 4) | int(hex_str_config[i], 16)
+                    for i in range(0, len(hex_str_config), 2)
+                ]
+                data_array = np.array(data_bytes, dtype=np.uint8)
+                np.copyto(self.ch1_buff[:len(data_array)], data_array)
+                self.ch1.sendchannel.transfer(self.ch1_buff, nbytes=len(data_array))
+            self.gcode.respond_info("Load print data finish.")
+        else:
+            self.gcode.respond_info("DMA channel busy,load print data fail.")
 
     def cmd_JET_ENABLE(self,gcmd):
-        delay_time=gcmd.get_float('DELAY_TIME')
-        current_time = self.reactor.monotonic() 
-        target_time = current_time + delay_time
-        
-        for channel in self.channels:
-            call_back=lambda e, s=self, ch=channel: s._jet_task(ch)
-            self.reactor.register_callback(call_back, target_time)
-            target_time=target_time+ delay_time
+        self.head_jet.write(1)
+        self.gcode.respond_info("Jet enable.")
 
     def cmd_JET_DISABLE(self,gcmd):
-        for channel in self.channels:
-            channel.JET_DISABLE()
+        self.head_jet.write(0)
+        self.ch1.sendchannel.stop()
+        self.ch1.recvchannel.stop()
+        self.gcode.respond_info("Jet disable.")
 
     def cmd_HEAD_DISABLE(self,gcmd):
-        for channel in self.channels:
-            channel.HEAD_DISABLE()
-        self.channels = []
+        self.head_en.write(0)
+        self.head_jet.write(0)
+        self.active_channels=0
+        self.gcode.respond_info("Head disable.")
 
     def cmd_WAIT(self,gcmd):
         time = gcmd.get_float('TIME')
         self.reactor.pause(self.reactor.monotonic()+time)
 
     def cmd_TEST1(self,gcmd):
-        #ser=serial.Serial(port='/dev/ttyCH9344USB3',baudrate=4000000,bytesize=serial.FIVEBITS,parity=serial.PARITY_EVEN,stopbits=serial.STOPBITS_ONE,timeout=0,)
-        ser=serial.Serial(port='/dev/ttyACM0')
-        ser.write(b'\x11')
-        ser.close()
-        self.gcode.respond_info("test1")
+        try:
+            video = self.ol.video
+        except Exception as e:
+            self.gcode.respond_info(f"No self.ol.video: {e}")
+            return
+
+        try:
+            ips = sorted(self.ol.ip_dict.keys())
+            self.gcode.respond_info("Overlay IPs: " + (", ".join(ips) if ips else "<none>"))
+
+            # video object overview
+            video_attrs = [a for a in dir(video) if not a.startswith("_")]
+            self.gcode.respond_info("ol.video attrs: " + (", ".join(video_attrs)))
+
+            # check ol.video.axi_vdma
+            has_axi_vdma = hasattr(video, "axi_vdma")
+            axi_vdma = getattr(video, "axi_vdma", None)
+            self.gcode.respond_info(f"ol.video.axi_vdma present: {has_axi_vdma}, value: {repr(axi_vdma)}")
+            if axi_vdma is not None:
+                self.gcode.respond_info("axi_vdma attrs: " + ", ".join([a for a in dir(axi_vdma) if not a.startswith("_")]))
+            # inspect hdmi_out and its internal _vdma
+            hdmi_out = getattr(video, "hdmi_out", None)
+            self.gcode.respond_info(f"hdmi_out: {repr(hdmi_out)}")
+            hdmi_vdma = getattr(hdmi_out, "_vdma", None) if hdmi_out is not None else None
+            self.gcode.respond_info(f"hdmi_out._vdma: {repr(hdmi_vdma)}")
+            if hdmi_vdma is not None:
+                self.gcode.respond_info("hdmi_out._vdma attrs: " + ", ".join([a for a in dir(hdmi_vdma) if not a.startswith("_")]))
+
+            # final helpful context
+            self.gcode.respond_info(f"Overlay repr: {repr(self.ol)}")
+
+        except Exception as ex:
+            self.gcode.respond_info(f"Error during TEST1 diagnostics: {ex}")
 
     def cmd_TEST2(self,gcmd):
-        #ser=serial.Serial(port='/dev/ttyCH9344USB3',baudrate=12000000,bytesize=serial.FIVEBITS,parity=serial.PARITY_EVEN,stopbits=serial.STOPBITS_ONE,timeout=0,)
-        ser=serial.Serial(port='/dev/ttyACM0')
-        ser.write(b'\x10')
-        ser.close()
-        self.gcode.respond_info("test2")
+        hdmi_out = self.ol.video.hdmi_out
+        Mode=VideoMode(1280, 720, 24)
+        hdmi_out.configure(Mode,PIXEL_BGR)
+        hdmi_out.start()
+        numframes = 600
+        for _ in range(numframes):
+            outframe = hdmi_out.newframe()
+            outframe.fill(1)
+            hdmi_out.writeframe(outframe)
+        hdmi_out.stop()
+        hdmi_out.close()
+        self.gcode.respond_info("TEST2 VDMA write complete ")
+
+
+
 
     def cmd_TEST3(self,gcmd):
-        ser=serial.Serial(port='/dev/ttyACM0')
-        ser.write(b'\x01\x02\x03')
-        ser.close()
-        self.gcode.respond_info("test3")
+        
+        
+        self.gcode.respond_info("TEST3 ")
+        ol = Overlay("/home/xilinx/zynq.bit")
+        ch1 = ol.axi_dma_1
+        head_en = GPIO(GPIO.get_gpio_pin(0), 'out')
+        head_dir = GPIO(GPIO.get_gpio_pin(1), 'out')
+        head_jet = GPIO(GPIO.get_gpio_pin(2), 'out')
+        mmio = MMIO(0x40000000, 0x1000)  # 0x1000为4K字节，和Vivado中显示的Range一致
+        mmio.write(0x0, 20000000) #20MHz，延迟1S
+        
+#        file_name = "config.txt"
+#        directory = os.path.dirname(self.virtual_sdcard.sdcard_dirname)
+#        file_path = os.path.join(directory,file_name)
+#        self.gcode.respond_info("Loading print data:%s"%(file_path)) 
+        
+        # 读取并解析txt文件
+        # 读取并解析Config.txt
+        with open("/home/xilinx/printer_data/gcodes/Config.txt", "r") as f:
+            hex_str_config = f.read()
+        byte_list = [
+            (int(hex_str_config[i+1], 16) << 4) | int(hex_str_config[i], 16)
+            for i in range(0, len(hex_str_config), 2)
+        ]
+        # 读取并解析1.txt
+        with open("/home/xilinx/printer_data/gcodes/1.txt", "r") as f:
+            hex_str_print = f.read()
+        self.gcode.respond_info(f'hex_str_print length: {len(hex_str_print)}')
+        printData_list = [
+            (int(hex_str_print[i+1], 16) << 4) | int(hex_str_print[i], 16)
+            for i in range(0, len(hex_str_print), 2)
+        ]
+        # 合并两个列表
+        merged_list = byte_list + printData_list
+        data_array = np.array(merged_list, dtype=np.uint8)
+        ch1_buffer = allocate(shape=data_array.shape, dtype=np.uint8)
+        np.copyto(ch1_buffer, data_array)
+        
+        head_jet.write(0)
+        time.sleep(2)
+        head_en.write(1)
+        time.sleep(0.5)
+        head_en.write(0)
+        time.sleep(0.5)
+        head_en.write(1)
+        
+        
+        
+        # 启动 DMA 传输
+        ch1.sendchannel.transfer(ch1_buffer)
+        ch1.sendchannel.wait()
+    
+        
+        time.sleep(5)
+        head_jet.write(1)
+        time.sleep(50)
+        head_en.write(0)
+        del ch1_buffer
+        self.gcode.respond_info("DMA send complete")
 
 def load_config(config):
         return Xaar1003(config)

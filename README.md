@@ -8,4 +8,4 @@ This project is built on Klipper and focuses on PolyJet 3D printing technology, 
 ❤️ [Patreon](patreon.com/Weirdtechresearch) 
 
 👾 Join the Discussion & Collaborate!
-🚀 [Discord](discord.gg/bAUc495WVe) 
+🚀 Discord：discord.gg/bAUc495WVe 

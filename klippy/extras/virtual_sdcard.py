@@ -4,8 +4,9 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import os, logging, io
+import zipfile
 
-VALID_GCODE_EXTS = ['gcode', 'g', 'gco']
+VALID_GCODE_EXTS = ['gcode', 'g', 'gco', 'zip']
 
 class VirtualSD:
     def __init__(self, config):
@@ -147,7 +148,11 @@ class VirtualSD:
         filename = gcmd.get("FILENAME")
         if filename[0] == '/':
             filename = filename[1:]
-        self._load_file(gcmd, filename, check_subdirs=True)
+        ext = filename.split('.')[-1].lower()
+        if ext == "zip":
+            self._load_zip_file(gcmd, filename, check_subdirs=True)
+        else:
+            self._load_file(gcmd, filename, check_subdirs=True)
         self.do_resume()
     def cmd_M20(self, gcmd):
         # List SD card
@@ -168,6 +173,38 @@ class VirtualSD:
         if filename.startswith('/'):
             filename = filename[1:]
         self._load_file(gcmd, filename)
+    def _load_zip_file(self, gcmd, filename, check_subdirs=False):
+        files = self.get_file_list(check_subdirs)
+        flist = [f[0] for f in files]
+        files_by_lower = { fname.lower(): fname for fname, fsize in files }
+        fname = filename
+        try:
+            if fname not in flist:
+                fname = files_by_lower[fname.lower()]
+            fname = os.path.join(self.sdcard_dirname, fname)
+            with zipfile.ZipFile(fname, 'r') as zf:
+                # 查找 Gcode.gcode 文件
+                gcode_name = None
+                for name in zf.namelist():
+                    if name.lower() == "gcode.gcode":
+                        gcode_name = name
+                        break
+                if gcode_name is None:
+                    raise gcmd.error("Gcode.gcode not found in zip file")
+                # 以文本模式读取 Gcode.gcode
+                f = io.TextIOWrapper(zf.open(gcode_name, 'r'))
+                f.seek(0, os.SEEK_END)
+                fsize = f.tell()
+                f.seek(0)
+        except Exception:
+            logging.exception("virtual_sdcard zip file open")
+            raise gcmd.error("Unable to open zip file or Gcode.gcode missing")
+        gcmd.respond_raw("File opened:%s Size:%d" % (filename, fsize))
+        gcmd.respond_raw("File selected")
+        self.current_file = f
+        self.file_position = 0
+        self.file_size = fsize
+        self.print_stats.set_current_file(filename)
     def _load_file(self, gcmd, filename, check_subdirs=False):
         files = self.get_file_list(check_subdirs)
         flist = [f[0] for f in files]

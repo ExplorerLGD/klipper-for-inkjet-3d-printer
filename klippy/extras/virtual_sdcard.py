@@ -17,6 +17,7 @@ class VirtualSD:
         sd = config.get('path')
         self.sdcard_dirname = os.path.normpath(os.path.expanduser(sd))
         self.current_file = None
+        self.current_zip_file = None
         self.file_position = self.file_size = 0
         # Print Stat Tracking
         self.print_stats = self.printer.load_object(config, 'print_stats')
@@ -129,6 +130,8 @@ class VirtualSD:
             self.do_pause()
             self.current_file.close()
             self.current_file = None
+        if self.current_zip_file is not None:
+            self.current_zip_file = None
         self.file_position = self.file_size = 0.
         self.print_stats.reset()
         self.printer.send_event("virtual_sdcard:reset_file")
@@ -201,6 +204,7 @@ class VirtualSD:
             raise gcmd.error("Unable to open zip file or Gcode.gcode missing")
         gcmd.respond_raw("File opened:%s Size:%d" % (filename, fsize))
         gcmd.respond_raw("File selected")
+        self.current_zip_file = fname
         self.current_file = f
         self.file_position = 0
         self.file_size = fsize

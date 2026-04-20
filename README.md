@@ -5,7 +5,7 @@ This project is built on Klipper and focuses on PolyJet 3D printing technology, 
 🔧 [Youtube](www.youtube.com/@weirdtechresearch)
 
 💡 High R&D Costs – Your support helps accelerate development! If you find this project valuable, consider supporting it on Patreon.
-❤️ [Patreon](patreon.com/Weirdtechresearch) 
+❤️ [kofi](https://ko-fi.com/weirdtechresearch)
 
 👾 Join the Discussion & Collaborate!
 🚀 Discord：discord.gg/bAUc495WVe 

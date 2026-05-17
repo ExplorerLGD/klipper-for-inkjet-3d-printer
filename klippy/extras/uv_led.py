@@ -35,7 +35,7 @@ class PrinterUVLED:
             self.mcu_pin.setup_max_duration(0.)
             self.last_value = static_value / self.scale
             self.mcu_pin.setup_start_value(
-                self.last_value, self.last_value, True)
+                self.last_value, self.last_value, True) 
         else:
             max_mcu_duration = config.getfloat('maximum_mcu_duration', 0.,
                                                minval=0.500,
@@ -50,7 +50,8 @@ class PrinterUVLED:
                 'shutdown_value', 0., minval=0., maxval=self.scale) / self.scale
             self.mcu_pin.setup_start_value(self.last_value, self.shutdown_value)
             pin_name = config.get_name().split()[1]
-            self.delay_time = config.getfloat('delay_time', 0., minval=0.)
+            self.on_delay_time = config.getfloat('on_delay_time', 0., minval=0.)
+            self.off_delay_time = config.getfloat('off_delay_time', 0., minval=0.)
             self.pwm_value = config.getfloat('pwm_value', 0., minval=0.)
             gcode = self.printer.lookup_object('gcode')
             gcode.register_mux_command("SET_PIN", "PIN", pin_name,
@@ -75,11 +76,14 @@ class PrinterUVLED:
         if self.resend_interval and self.resend_timer is None:
             self.resend_timer = self.reactor.register_timer(
                 self._resend_current_val, self.reactor.NOW)
-    def _delay_set_pin(self, print_time, value, cycle_time, is_resend=False):
+    def _delay_set_pin(self, print_time, value, cycle_time,state, is_resend=False):
         if value == self.last_value and cycle_time == self.last_cycle_time:
             if not is_resend:
                 return
-        print_time = max(print_time+self.delay_time, self.last_print_time + PIN_MIN_TIME)
+        if state==1:
+            print_time = max(print_time+self.on_delay_time, self.last_print_time + PIN_MIN_TIME)
+        else:
+            print_time = max(print_time+self.off_delay_time, self.last_print_time + PIN_MIN_TIME)
         if self.is_pwm:
             self.mcu_pin.set_pwm(print_time, value, cycle_time)
         else:
@@ -109,10 +113,9 @@ class PrinterUVLED:
                                     above=0., maxval=MAX_SCHEDULE_TIME)
         if not self.is_pwm and value not in [0., 1.]:
             raise gcmd.error("Invalid pin value")
-        delay_time = self.delay_time
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.register_lookahead_callback(
-            lambda print_time: self._delay_set_pin(print_time, value, cycle_time))
+            lambda print_time: self._delay_set_pin(print_time, value, cycle_time,1))
 
     def cmd_LED_OFF(self, gcmd):
         value = 0.
@@ -122,7 +125,8 @@ class PrinterUVLED:
             raise gcmd.error("Invalid pin value")
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.register_lookahead_callback(
-            lambda print_time: self._set_pin(print_time, value, cycle_time))
+            #lambda print_time: self._set_pin(print_time, value, cycle_time))
+            lambda print_time: self._delay_set_pin(print_time, value, cycle_time,0))
 
     def _resend_current_val(self, eventtime):
         if self.last_value == self.shutdown_value:

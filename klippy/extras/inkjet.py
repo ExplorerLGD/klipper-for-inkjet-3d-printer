@@ -1,82 +1,42 @@
-import logging,os
-import sys,optparse, time
-import can
-import struct
-#cat /sys/class/thermal/thermal_zone0/temp
+from pynq import Overlay
+from pynq import PL
 
 class Inkjet:
     def __init__(self,config):
         self.printer=config.get_printer()       
         self.reactor=self.printer.get_reactor()
         self.gcode=self.printer.lookup_object('gcode')
-        #--can bus-----
-        self.INK_SUPPLY_CTL_ID = 0x44C
-        self.INK_UV_LIGHT_CTL_ID = 0x44E
-        #self.ink_tp_filters = [{"can_id": self.INK_SUPPLY_CTL_ID, "can_mask": 0x7ff,"extended": False}]
-        #self.inkjet_bus = can.interface.Bus(channel="can0", bitrate=500000, can_filters=self.ink_tp_filters, bustype='socketcan')
-        #self.inkjet_bus = can.interface.Bus(channel="can0", bitrate=1000000,  bustype='socketcan')
-        #-----控制参数-----------
-        self.ink_heat_PWM=0
-        self.ink_pump_pwm=0
-        self.uv_light_en=0
-        self.uv_fan_en=0
         #----------
-        self.gcode.register_command('CANTEST',self.cmd_cantest)
-        self.gcode.register_command('INK_HEAT_PWM',self.cmd_INK_HEAT_PWM)
-        self.gcode.register_command('INK_PUMP_PWM',self.cmd_INK_PUMP_PWM)
-        self.gcode.register_command('UV_LIGHT_EN',self.cmd_UV_LIGHT_EN)
-        self.gcode.register_command('UV_FAN_EN',self.cmd_UV_FAN_EN)
-        #self._InitCAN()
+        self.gcode.register_command('WAIT',self.cmd_WAIT)
+        self.gcode.register_command('UV_LED',self.cmd_UV_LED)
+        self.gcode.register_command('RESET_FPGA',self.cmd_RESET_FPGA)
 
-    def _send_ink_supply_ctl_data(self):
-        byte_array = struct.pack('HH', self.ink_heat_PWM, self.ink_pump_pwm)
-        msg = can.Message(arbitration_id=self.INK_SUPPLY_CTL_ID,data=byte_array, is_extended_id=False)
-        self.inkjet_bus.send(msg)
+    def cmd_WAIT(self,gcmd):
+        time = gcmd.get_float('TIME')
+        self.gcode.respond_info("Wait for %f seconds."%(time))
+        self.reactor.pause(self.reactor.monotonic()+time)
+        self.gcode.respond_info("Wait finish.")
+        
 
-    def cmd_INK_HEAT_PWM(self,gcmd):
-        pwm = gcmd.get_int('VALUE', 0, minval=0, maxval=255)
-        self.ink_heat_PWM=pwm
-        self._send_ink_supply_ctl_data()
-        self.gcode.respond_info("Ink heat pwm: %s"%(self.ink_heat_PWM))
+    def cmd_UV_LED(self,gcmd):
+        value = gcmd.get_int('VALUE', 0, minval=0, maxval=1)
+        delay_time = gcmd.get_float('DELAY_TIME')
+        if(value):
+            current_time = self.reactor.monotonic() 
+            target_time = current_time + delay_time
+            self.gcode.respond_info("Wait for %f seconds."%(delay_time))
+            #call_back = lambda eventtime: self.gcode.run_script_from_command("SET_PIN PIN=uv_led VALUE=1")
+            self.reactor.register_callback(self._led_callback, target_time)
+        else:
+            self.gcode.run_script_from_command("SET_PIN PIN=uv_led VALUE=0")
+    def _led_callback(self, eventtime):
+        self.gcode.run_script_from_command("SET_PIN PIN=uv_led VALUE=1")  
+        self.gcode.respond_info("led on.")  
 
-
-    def cmd_INK_PUMP_PWM(self,gcmd):
-        pwm = gcmd.get_int('VALUE', 0, minval=0, maxval=4096)
-        self.ink_pump_pwm=pwm
-        self._send_ink_supply_ctl_data()
-        self.gcode.respond_info("Ink pump pwm: %s"%(self.ink_pump_pwm))
-
-    def _send_uv_light_ctl_data(self):
-        byte_array = struct.pack('HH', self.uv_light_en, self.uv_fan_en)
-        msg = can.Message(arbitration_id=self.INK_UV_LIGHT_CTL_ID,data=byte_array, is_extended_id=False)
-        self.inkjet_bus.send(msg)
-
-    def cmd_UV_LIGHT_EN(self,gcmd):
-        en = gcmd.get_int('VALUE', 0, minval=0, maxval=1)
-        self.uv_light_en=en
-        self._send_uv_light_ctl_data()
-        self.gcode.respond_info("UV light state: %s"%(self.uv_light_en))
-
-    def cmd_UV_FAN_EN(self,gcmd):
-        en = gcmd.get_int('VALUE', 0, minval=0, maxval=1)
-        self.uv_fan_en=en
-        self._send_uv_light_ctl_data()
-        self.gcode.respond_info("UV fan state: %s"%(self.uv_fan_en))
-
-
-
-    def cmd_cantest(self,gcmd):
-        byte_array = struct.pack('BH', self.ink_heat_PWM, self.ink_pump_pwm)
-        self.gcode.respond_info("pack data.")
-        msg = can.Message(arbitration_id=self.INK_SUPPLY_CTL_ID,data=byte_array, is_extended_id=False)
-        self.inkjet_bus.send(msg)
-        # self.gcode.respond_info("can send msg")
-        # msg=bus.recv(1)
-        # if msg is not None:
-        #     self.gcode.respond_info("can recv msg:%s"%(msg.data))
-        # else:
-        #     self.gcode.respond_info("can recv None")
-
+    def cmd_RESET_FPGA(self,gcmd):
+        PL.reset()
+        Overlay("/home/xilinx/zynq.bit")
+        self.gcode.respond_info("FPGA reset finish.")
 
 def load_config(config):
     return Inkjet(config)
